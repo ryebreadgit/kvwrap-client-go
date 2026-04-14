@@ -1,0 +1,69 @@
+syntax = "proto3";
+package kvwrappb;
+option go_package = "github.com/ryebreadgit/kvwrap-client-go/kvwrappb";
+
+/// Service for key-value store operations.
+service KvService {
+    // Get value for a given key in a partition
+  rpc Get(GetRequest) returns (GetResponse);
+    // Set value for a given key in a partition
+  rpc Set(SetRequest) returns (SetResponse);
+    // Delete a given key in a partition
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+    // All keys in a partition, optionally filtered by prefix
+  rpc AllKeys(AllKeysRequest) returns (stream AllKeysResponse);
+    // Watch for changes to a key or prefix in a partition
+  rpc Watch(WatchRequest) returns (stream WatchEventMessage);
+}
+
+message GetRequest {
+  string partition = 1;
+  bytes  key       = 2;
+}
+
+message GetResponse {
+  optional bytes value = 1;
+}
+
+message SetRequest {
+  string partition = 1;
+  bytes  key       = 2;
+  bytes  value     = 3;
+}
+
+message SetResponse {}
+
+message DeleteRequest {
+  string partition = 1;
+  bytes  key       = 2;
+}
+
+message DeleteResponse {}
+
+message AllKeysRequest {
+  string partition   = 1;
+  bytes  prefix      = 2; // Optional prefix filter
+  uint32 buffer_size = 3;
+}
+
+message AllKeysResponse {
+  bytes key   = 1;
+  bytes value = 2;
+}
+
+message WatchRequest {
+  string partition     = 1;
+  bytes  key_or_prefix = 2;
+  bool   is_prefix     = 3;
+}
+
+message WatchEventMessage {
+  enum EventType {
+    SET    = 0;
+    DELETE = 1;
+  }
+  EventType event_type = 1;
+  string    partition  = 2;
+  bytes     key        = 3;
+  bytes     value      = 4;
+}
