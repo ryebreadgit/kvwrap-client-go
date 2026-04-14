@@ -1,7 +1,6 @@
 package kvwrap
 
 type RemoteConfig struct {
-	Endpoint          string
-	ConnectionTimeout int // in seconds
-	RequestTimeout    int // in seconds
+	Endpoint       string
+	RequestTimeout int // in seconds
 }
