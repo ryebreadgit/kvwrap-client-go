@@ -78,7 +78,7 @@ kv.GetJSON(ctx, "users", []byte("user:1"), &user)
 
 ## Scanning Keys
 
-Iterate over all key-value pairs matching a prefix:
+Iterate over all key-value pairs matching a prefix (or all given no prefix):
 
 ```go
 results, err := kv.Scan(ctx, "mypartition", []byte("user:"), 32)
