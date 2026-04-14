@@ -22,14 +22,9 @@ type RemoteStore struct {
 }
 
 func NewRemoteStore(config RemoteConfig) (*RemoteStore, error) {
-	dialOptions := []grpc.DialOption{
+	conn, err := grpc.NewClient(config.Endpoint,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	}
-	if config.ConnectionTimeout > 0 {
-		dialOptions = append(dialOptions, grpc.WithBlock(), grpc.WithTimeout(time.Duration(config.ConnectionTimeout)*time.Second))
-	}
-
-	conn, err := grpc.NewClient(config.Endpoint, dialOptions...)
+	)
 	if err != nil {
 		return nil, ErrConnectionFailed
 	}
@@ -84,7 +79,9 @@ func (r *RemoteStore) GetJSON(ctx context.Context, partition string, key []byte,
 	if err != nil {
 		return err
 	}
-
+	if val == nil {
+		return ErrKeyNotFound
+	}
 	if err := json.Unmarshal(val, value); err != nil {
 		return ErrJSONUnmarshal
 	}
@@ -132,94 +129,58 @@ func (r *RemoteStore) Scan(ctx context.Context, partition string, prefix []byte,
 }
 
 func (r *RemoteStore) WatchKey(ctx context.Context, partition string, key []byte, bufferSize uint32) (<-chan WatchEvent, error) {
-	data, err := r.client.Watch(ctx, &kvwrappb.WatchRequest{
-		Partition:   partition,
-		IsPrefix:    false,
-		KeyOrPrefix: key,
-	})
-	if err != nil {
-		return nil, mapError(err)
-	}
-
-	events := make(chan WatchEvent, bufferSize)
-	go func() {
-		defer close(events)
-		for {
-			resp, err := data.Recv()
-			if err != nil {
-				if err == context.Canceled || err == context.DeadlineExceeded {
-					return
-				}
-				events <- WatchEvent{Err: mapError(err)}
-				return
-			}
-			var eventType EventType
-			switch resp.EventType {
-			case kvwrappb.WatchEventMessage_SET:
-				eventType = EventSet
-			case kvwrappb.WatchEventMessage_DELETE:
-				eventType = EventDelete
-			default:
-				events <- WatchEvent{Err: fmt.Errorf("unknown event type: %v", resp.EventType)}
-				continue
-			}
-			events <- WatchEvent{
-				Type:      eventType,
-				Partition: partition,
-				Key:       resp.Key,
-				Value:     resp.Value,
-			}
-		}
-	}()
-	return events, nil
-
+	return r.startWatch(ctx, partition, key, false, bufferSize)
 }
 
 func (r *RemoteStore) WatchPrefix(ctx context.Context, partition string, prefix []byte, bufferSize uint32) (<-chan WatchEvent, error) {
-	data, err := r.client.Watch(ctx, &kvwrappb.WatchRequest{
-		Partition:   partition,
-		IsPrefix:    true,
-		KeyOrPrefix: prefix,
-	})
-	if err != nil {
-		return nil, mapError(err)
-	}
-
-	events := make(chan WatchEvent, bufferSize)
-	go func() {
-		defer close(events)
-		for {
-			resp, err := data.Recv()
-			if err != nil {
-				if err == context.Canceled || err == context.DeadlineExceeded {
-					return
-				}
-				events <- WatchEvent{Err: mapError(err)}
-				return
-			}
-			var eventType EventType
-			switch resp.EventType {
-			case kvwrappb.WatchEventMessage_SET:
-				eventType = EventSet
-			case kvwrappb.WatchEventMessage_DELETE:
-				eventType = EventDelete
-			default:
-				events <- WatchEvent{Err: fmt.Errorf("unknown event type: %v", resp.EventType)}
-				continue
-			}
-			events <- WatchEvent{
-				Type:      eventType,
-				Partition: partition,
-				Key:       resp.Key,
-				Value:     resp.Value,
-			}
-		}
-	}()
-	return events, nil
+	return r.startWatch(ctx, partition, prefix, true, bufferSize)
 }
 
 func (r *RemoteStore) Close() error {
 	return r.conn.Close()
+}
+
+func (r *RemoteStore) startWatch(ctx context.Context, partition string, keyOrPrefix []byte, isPrefix bool, bufferSize uint32) (<-chan WatchEvent, error) {
+	data, err := r.client.Watch(ctx, &kvwrappb.WatchRequest{
+		Partition:   partition,
+		IsPrefix:    isPrefix,
+		KeyOrPrefix: keyOrPrefix,
+	})
+	if err != nil {
+		return nil, mapError(err)
+	}
+
+	events := make(chan WatchEvent, bufferSize)
+	go func() {
+		defer close(events)
+		for {
+			resp, err := data.Recv()
+			if err != nil {
+				if err == context.Canceled || err == context.DeadlineExceeded {
+					return
+				}
+				events <- WatchEvent{Err: mapError(err)}
+				return
+			}
+			var eventType EventType
+			switch resp.EventType {
+			case kvwrappb.WatchEventMessage_SET:
+				eventType = EventSet
+			case kvwrappb.WatchEventMessage_DELETE:
+				eventType = EventDelete
+			default:
+				events <- WatchEvent{Err: fmt.Errorf("unknown event type: %v", resp.EventType)}
+				continue
+			}
+			events <- WatchEvent{
+				Type:      eventType,
+				Partition: partition,
+				Key:       resp.Key,
+				Value:     resp.Value,
+			}
+		}
+	}()
+	return events, nil
 }
 
 func (r *RemoteStore) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -231,6 +192,9 @@ func (r *RemoteStore) withTimeout(ctx context.Context) (context.Context, context
 	return ctx, func() {}
 }
 func mapError(err error) error {
+	if err == nil {
+		return nil
+	}
 	st, ok := status.FromError(err)
 	if !ok {
 		return err
