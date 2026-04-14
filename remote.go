@@ -3,7 +3,9 @@ package kvwrap
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/ryebreadgit/kvwrap-client-go/kvwrappb"
@@ -97,7 +99,6 @@ func (r *RemoteStore) SetJSON(ctx context.Context, partition string, key []byte,
 }
 
 func (r *RemoteStore) Scan(ctx context.Context, partition string, prefix []byte, bufferSize uint32) (<-chan ScanResult, error) {
-	// Use client.watch
 	data, err := r.client.AllKeys(ctx, &kvwrappb.AllKeysRequest{
 		Partition:  partition,
 		Prefix:     prefix,
@@ -113,7 +114,10 @@ func (r *RemoteStore) Scan(ctx context.Context, partition string, prefix []byte,
 		for {
 			resp, err := data.Recv()
 			if err != nil {
-				if err == context.Canceled || err == context.DeadlineExceeded {
+				if err == io.EOF {
+					return
+				}
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return
 				}
 				results <- ScanResult{Err: mapError(err)}
@@ -156,7 +160,10 @@ func (r *RemoteStore) startWatch(ctx context.Context, partition string, keyOrPre
 		for {
 			resp, err := data.Recv()
 			if err != nil {
-				if err == context.Canceled || err == context.DeadlineExceeded {
+				if err == io.EOF {
+					return
+				}
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return
 				}
 				events <- WatchEvent{Err: mapError(err)}
@@ -191,6 +198,7 @@ func (r *RemoteStore) withTimeout(ctx context.Context) (context.Context, context
 	}
 	return ctx, func() {}
 }
+
 func mapError(err error) error {
 	if err == nil {
 		return nil
