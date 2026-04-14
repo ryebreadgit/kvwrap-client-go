@@ -12,9 +12,10 @@ var (
 	ErrInvalidValue     = fmt.Errorf("invalid value")
 )
 
-type KVPair struct {
+type ScanResult struct {
 	Key   []byte
 	Value []byte
+	Err   error
 }
 
 type WatchEvent struct {
@@ -22,6 +23,7 @@ type WatchEvent struct {
 	Partition string
 	Key       []byte
 	Value     []byte // Only set for "Set" events
+	Err       error
 }
 
 type KVWrapClient interface {
@@ -32,11 +34,11 @@ type KVWrapClient interface {
 	// Delete removes the key-value pair associated with the given key.
 	Delete(ctx context.Context, partition string, key []byte) error
 	// Scan retrieves all key-value pairs that match the given optional prefix.
-	Scan(ctx context.Context, partition string, prefix []byte) (<-chan KVPair, <-chan error)
+	Scan(ctx context.Context, partition string, prefix []byte) <-chan ScanResult
 	// WatchKey watches for changes to a specific key and sends events to the provided channel.
-	WatchKey(ctx context.Context, partition string, key []byte) (<-chan WatchEvent, <-chan error)
+	WatchKey(ctx context.Context, partition string, key []byte) <-chan WatchEvent
 	// WatchPrefix watches for changes to keys with a specific prefix and sends events to the provided channel.
-	WatchPrefix(ctx context.Context, partition string, prefix []byte) (<-chan WatchEvent, <-chan error)
+	WatchPrefix(ctx context.Context, partition string, prefix []byte) <-chan WatchEvent
 	// GetJSON retrieves the value associated with the given key and unmarshals it into the provided struct.
 	GetJSON(ctx context.Context, partition string, key []byte, value any) error
 	// SetJSON marshals the provided struct and sets it as the value for the given key.
